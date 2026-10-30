@@ -193,6 +193,16 @@ final class AppViewModel: ObservableObject {
 
     @Published var uiLanguage: AppLanguage = .zhHans
     @Published var appearanceMode: AppAppearanceMode = .system
+
+    // MARK: 配置同步（WebDAV）
+
+    @Published var webDAVConfig: WebDAVConfig = .empty
+    @Published var syncStatus: SyncStatus = .idle
+    @Published var lastSyncAt: Date?
+    @Published var lastSyncMessage: String?
+    @Published var lastSyncDeviceName: String?
+    @Published var autoSyncEnabled: Bool = false
+    @Published var syncOnLaunch: Bool = false
     @Published var isPanelPresented: Bool = false
     @Published var activeMenuTab: RootTab = .proxy
     @Published var launchAtLoginEnabled: Bool = false
@@ -418,6 +428,10 @@ final class AppViewModel: ObservableObject {
     let ssidStrategyRulesKey = "clashbar.ssid.strategy.rules.v1"
     let uiLanguageKey = "clashbar.ui.language"
     let appearanceModeKey = "clashbar.ui.appearance.mode"
+    let webDAVConfigKey = "clashbar.sync.webdav.config.v1"
+    let syncLastAtKey = "clashbar.sync.last.at.v1"
+    let syncAutoEnabledKey = "clashbar.sync.auto.enabled.v1"
+    let syncOnLaunchKey = "clashbar.sync.on.launch.v1"
 
     let maxInMemoryLogEntries = 5000
     let hiddenPanelMaxInMemoryLogEntries = 20

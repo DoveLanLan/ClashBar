@@ -416,3 +416,24 @@
 "app.config.delete.message" = "This will permanently delete the config file. If it is a remote subscription, the subscription metadata will also be removed.";
 "log.config.delete.success" = "Config deleted: %@";
 "log.config.delete.failed" = "Failed to delete config (%@): %@";
+
+/* ===== Config Sync (WebDAV) ===== */
+"ui.section.sync" = "Config Sync";
+"ui.sync.last_sync" = "Last sync";
+"ui.sync.server" = "WebDAV Server";
+"ui.sync.username" = "Account (email)";
+"ui.sync.password" = "App password";
+"ui.sync.password_hint" = "Generated in Nutstore security settings";
+"ui.sync.remote_dir" = "Remote directory";
+"ui.sync.on_launch" = "Sync on launch";
+"ui.sync.auto" = "Auto sync";
+"ui.sync.action.push" = "Upload";
+"ui.sync.action.pull" = "Download";
+"ui.sync.action.sync" = "Sync";
+"ui.sync.status.idle" = "Not synced";
+"ui.sync.status.running" = "Syncing…";
+"ui.sync.status.ok" = "Synced";
+"app.sync.pushed" = "Uploaded to cloud";
+"app.sync.pulled" = "Downloaded from cloud";
+"app.sync.error.not_configured" = "Please configure WebDAV first";
+"ui.sync.hint" = "Sync current config and settings. For Nutstore, use an app password, not your login password.";

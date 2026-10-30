@@ -416,3 +416,24 @@
 "app.config.delete.message" = "此操作将永久删除配置文件。如果这是远程订阅，订阅元数据也会被一并删除。";
 "log.config.delete.success" = "已删除配置：%@";
 "log.config.delete.failed" = "删除配置失败（%@）：%@";
+
+/* ===== 配置同步（WebDAV） ===== */
+"ui.section.sync" = "配置同步";
+"ui.sync.last_sync" = "最后同步";
+"ui.sync.server" = "WebDAV 服务器";
+"ui.sync.username" = "账号（邮箱）";
+"ui.sync.password" = "应用密码";
+"ui.sync.password_hint" = "坚果云「安全选项」里生成的应用密码";
+"ui.sync.remote_dir" = "远端目录";
+"ui.sync.on_launch" = "启动时同步";
+"ui.sync.auto" = "定时自动同步";
+"ui.sync.action.push" = "上传";
+"ui.sync.action.pull" = "下载";
+"ui.sync.action.sync" = "同步";
+"ui.sync.status.idle" = "未同步";
+"ui.sync.status.running" = "同步中…";
+"ui.sync.status.ok" = "已同步";
+"app.sync.pushed" = "已上传到云端";
+"app.sync.pulled" = "已从云端下载";
+"app.sync.error.not_configured" = "请先填写 WebDAV 配置";
+"ui.sync.hint" = "同步当前配置与设置。坚果云请使用「应用密码」，不是登录密码。";

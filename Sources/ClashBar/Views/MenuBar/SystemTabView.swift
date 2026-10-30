@@ -16,6 +16,7 @@ private struct SettingsSelectionRowConfiguration<Option: Hashable> {
 struct SystemTabView: TranslatingView {
     @EnvironmentObject var appViewModel: AppViewModel
     @State private var isExceptionsExpanded = false
+    @State private var isSyncExpanded = false
 
     func settingsCardHeader(_ title: String, symbol: String) -> some View {
         HStack(spacing: T.space6) {
@@ -312,6 +313,175 @@ struct SystemTabView: TranslatingView {
             })
     }
 
+    // MARK: 配置同步（WebDAV）
+
+    var syncSettingsCard: some View {
+        VStack(spacing: 0) {
+            Button {
+                self.isSyncExpanded.toggle()
+            } label: {
+                HStack(spacing: T.space8) {
+                    self.settingsRowLabel(
+                        symbol: "arrow.triangle.2.circlepath",
+                        title: self.tr("ui.section.sync"))
+                        .layoutPriority(1)
+                    Spacer(minLength: 0)
+                    HStack(spacing: T.space2) {
+                        Text(self.syncStatusText)
+                            .foregroundStyle(self.syncStatusColor)
+                            .lineLimit(1)
+                        Image(systemName: "chevron.right")
+                            .font(.app(size: T.FontSize.caption, weight: .semibold))
+                            .foregroundStyle(nativeTertiaryLabel)
+                            .rotationEffect(.degrees(self.isSyncExpanded ? 90 : 0))
+                    }
+                    .font(.app(size: T.FontSize.caption, weight: .medium))
+                }
+                .menuRowPadding(vertical: T.space4)
+            }
+            .buttonStyle(.plain)
+
+            VStack(alignment: .leading, spacing: T.space4) {
+                Text(self.tr("ui.sync.hint"))
+                    .font(.app(size: T.FontSize.caption, weight: .regular))
+                    .foregroundStyle(nativeSecondaryLabel)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                self.syncTextRow(
+                    title: self.tr("ui.sync.server"),
+                    symbol: "server.rack",
+                    placeholder: WebDAVConfig.nutstoreEndpoint,
+                    text: self.$appViewModel.webDAVConfig.endpoint,
+                    isSecure: false)
+
+                self.syncTextRow(
+                    title: self.tr("ui.sync.username"),
+                    symbol: "person.crop.circle",
+                    placeholder: "you@example.com",
+                    text: self.$appViewModel.webDAVConfig.username,
+                    isSecure: false)
+
+                self.syncTextRow(
+                    title: self.tr("ui.sync.password"),
+                    symbol: "key",
+                    placeholder: self.tr("ui.sync.password_hint"),
+                    text: self.$appViewModel.webDAVConfig.password,
+                    isSecure: true)
+
+                self.syncTextRow(
+                    title: self.tr("ui.sync.remote_dir"),
+                    symbol: "folder",
+                    placeholder: WebDAVConfig.defaultRemoteDirectory,
+                    text: self.$appViewModel.webDAVConfig.remoteDirectory,
+                    isSecure: false)
+
+                self.settingsToggleRow(
+                    self.tr("ui.sync.on_launch"),
+                    symbol: "play.circle",
+                    isOn: self.$appViewModel.syncOnLaunch)
+
+                self.settingsToggleRow(
+                    self.tr("ui.sync.auto"),
+                    symbol: "arrow.clockwise.circle",
+                    isOn: self.$appViewModel.autoSyncEnabled)
+
+                HStack(spacing: T.space4) {
+                    Button {
+                        self.appViewModel.persistSyncSettings()
+                        Task { await self.appViewModel.pushSync() }
+                    } label: {
+                        Label(self.tr("ui.sync.action.push"), systemImage: "icloud.and.arrow.up")
+                            .frame(maxWidth: .infinity, alignment: .center)
+                    }
+                    .appBorderedButtonStyle()
+                    .controlSize(.small)
+                    .disabled(self.syncActionDisabled)
+
+                    Button {
+                        Task { await self.appViewModel.pullSync() }
+                    } label: {
+                        Label(self.tr("ui.sync.action.pull"), systemImage: "icloud.and.arrow.down")
+                            .frame(maxWidth: .infinity, alignment: .center)
+                    }
+                    .appBorderedButtonStyle()
+                    .controlSize(.small)
+                    .disabled(self.syncActionDisabled)
+
+                    Button {
+                        self.appViewModel.persistSyncSettings()
+                        Task { await self.appViewModel.runSync() }
+                    } label: {
+                        Label(self.tr("ui.sync.action.sync"), systemImage: "arrow.triangle.2.circlepath")
+                            .frame(maxWidth: .infinity, alignment: .center)
+                    }
+                    .appBorderedButtonStyle()
+                    .controlSize(.small)
+                    .disabled(self.syncActionDisabled)
+                }
+            }
+            .menuRowPadding(vertical: T.space4)
+            .frame(maxHeight: self.isSyncExpanded ? .infinity : 0, alignment: .top)
+            .clipped()
+            .opacity(self.isSyncExpanded ? 1 : 0)
+        }
+        .animation(.spring(response: 0.30, dampingFraction: 0.80), value: self.isSyncExpanded)
+    }
+
+    func syncTextRow(
+        title: String,
+        symbol: String,
+        placeholder: String,
+        text: Binding<String>,
+        isSecure: Bool) -> some View
+    {
+        VStack(alignment: .leading, spacing: T.space4) {
+            self.settingsRowLabel(symbol: symbol, title: title)
+            Group {
+                if isSecure {
+                    SecureField(placeholder, text: text)
+                } else {
+                    TextField(placeholder, text: text)
+                }
+            }
+            .textFieldStyle(.roundedBorder)
+            .controlSize(.small)
+            .font(.app(size: T.FontSize.body, weight: .regular))
+        }
+        .menuRowPadding(vertical: T.space4)
+    }
+
+    var syncStatusText: String {
+        if self.appViewModel.syncStatus.isRunning {
+            return self.tr("ui.sync.status.running")
+        }
+        if case let .failed(message) = self.appViewModel.syncStatus {
+            return message
+        }
+        if let last = self.appViewModel.lastSyncAt {
+            let formatter = DateFormatter()
+            formatter.dateFormat = "MM-dd HH:mm"
+            return "\(self.tr("ui.sync.status.ok")) \(formatter.string(from: last))"
+        }
+        return self.tr("ui.sync.status.idle")
+    }
+
+    var syncStatusColor: Color {
+        switch self.appViewModel.syncStatus {
+        case .failed:
+            return .red
+        case .running:
+            return .orange
+        case .succeeded:
+            return .green
+        case .idle:
+            return nativeSecondaryLabel
+        }
+    }
+
+    var syncActionDisabled: Bool {
+        self.appViewModel.syncStatus.isRunning || !self.appViewModel.webDAVConfig.isConfigured
+    }
+
     var body: some View {
         let isRemote = self.appViewModel.isRemoteTarget
         let proxyPortFields: [(titleKey: String, symbol: String, text: Binding<String>)] = [
@@ -509,6 +679,8 @@ struct SystemTabView: TranslatingView {
                 .opacity(self.isExceptionsExpanded ? 1 : 0)
             }
             .animation(.spring(response: 0.30, dampingFraction: 0.80), value: self.isExceptionsExpanded)
+
+            self.syncSettingsCard
 
             VStack(spacing: 0) {
                 self.settingsCardHeader(

@@ -57,6 +57,7 @@ extension AppViewModel {
         restartRemoteConfigBackgroundTasksIfNeeded()
         self.ssidStrategyRules = loadPersistedSSIDStrategyRules()
         self.pruneSSIDStrategyRulesIfNeeded()
+        self.loadPersistedSyncSettings()
         self.remoteMachineStore.resetActiveTarget()
         if let configPath = self.configService.selectedConfig?.path {
             _ = self.applyExternalControllerFromSelectedConfigFile(configPath: configPath)
@@ -84,6 +85,10 @@ extension AppViewModel {
             } else {
                 self.resetSystemProxyObservedState()
                 self.didCheckSystemProxyConsistencyOnLaunch = true
+            }
+
+            if self.syncOnLaunch, self.webDAVConfig.isConfigured {
+                await self.runSync()
             }
         }
 
