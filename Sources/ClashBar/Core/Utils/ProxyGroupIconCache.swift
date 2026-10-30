@@ -136,8 +136,15 @@ actor ProxyGroupIconCache {
     }
 }
 
+private struct ProxyGroupIconCacheKey: EnvironmentKey {
+    static let defaultValue: ProxyGroupIconCache = .unavailable
+}
+
 extension EnvironmentValues {
-    @Entry var proxyGroupIconCache: ProxyGroupIconCache = .unavailable
+    var proxyGroupIconCache: ProxyGroupIconCache {
+        get { self[ProxyGroupIconCacheKey.self] }
+        set { self[ProxyGroupIconCacheKey.self] = newValue }
+    }
 }
 
 struct ProxyGroupIconView: View {
