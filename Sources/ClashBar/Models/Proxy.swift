@@ -4,6 +4,61 @@ enum ProxyDelayHistory {
     static let limit = 4
 }
 
+/// Immutable view of the latency state for one render pass.
+///
+/// Resolving a node's samples used to walk `proxyGroups` with `first(where:)` on every call, so a
+/// list of ~1000 nodes in a ~40 group config paid O(nodes × groups) string comparisons per pass
+/// (and per sort comparison). Building the index once per pass keeps lookups to a couple of
+/// dictionary hits.
+struct ProxyDelayLookup {
+    private let samplesByNode: [String: [Int]]
+    private let nestedSelection: [String: String]
+
+    init(samplesByNode: [String: [Int]], groups: [ProxyGroup]) {
+        self.samplesByNode = samplesByNode
+        var nestedSelection: [String: String] = [:]
+        nestedSelection.reserveCapacity(groups.count)
+        for group in groups {
+            guard !group.all.isEmpty, let now = group.now?.trimmedNonEmpty else { continue }
+            nestedSelection[group.name] = now
+        }
+        self.nestedSelection = nestedSelection
+    }
+
+    /// Walks the node → nested group chain, mirroring the previous `proxySelectionChain` walk:
+    /// the deepest nested selection is preferred, then it falls back to the starting node.
+    func samples(for node: String) -> [Int] {
+        var chain: [String] = []
+        var current = node
+        var seen: Set<String> = []
+        while seen.insert(current).inserted {
+            chain.append(current)
+            guard let next = self.nestedSelection[current] else { break }
+            current = next
+        }
+        for name in chain.reversed() {
+            if let samples = self.samplesByNode[name], !samples.isEmpty {
+                return samples
+            }
+        }
+        return []
+    }
+
+    func samples(for node: String, fallbackToGroup group: String) -> [Int] {
+        let nodeSamples = self.samples(for: node)
+        guard nodeSamples.isEmpty else { return nodeSamples }
+        return self.samples(for: group)
+    }
+
+    func value(for node: String) -> Int? {
+        self.samples(for: node).last
+    }
+
+    func value(for node: String, fallbackToGroup group: String) -> Int? {
+        self.samples(for: node, fallbackToGroup: group).last
+    }
+}
+
 struct ProxyGroupsResponse: Decodable, Equatable {
     let proxies: [String: ProxyGroup]
 }

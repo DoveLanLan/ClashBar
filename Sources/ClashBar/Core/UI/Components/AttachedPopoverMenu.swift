@@ -301,10 +301,9 @@ private struct SideAttachedPopoverHost<Content: View>: NSViewRepresentable {
         context.coordinator.anchorHovered = self.$anchorHovered
         context.coordinator.popoverRequested = self.$popoverRequested
         context.coordinator.suppressAutoOpen = self.$suppressAutoOpen
-        context.coordinator.width = self.width
-        context.coordinator.maxHeight = self.maxHeight
         context.coordinator.onVisibilityChanged = self.onVisibilityChanged
         context.coordinator.hostingController.rootView = self.content
+        context.coordinator.updateLayoutHints(width: self.width, maxHeight: self.maxHeight)
         context.coordinator.sync(anchorView: nsView)
     }
 
@@ -335,6 +334,19 @@ private struct SideAttachedPopoverHost<Content: View>: NSViewRepresentable {
         private let edgeOverlap: CGFloat = 1
         private let closeDebounce: TimeInterval = 0.10
         private var reportedVisible = false
+        /// Re-measuring the popover content forces a full layout of the (possibly ~1000 row) node
+        /// list. Only do it when the panel is not on screen yet or its size constraints changed;
+        /// otherwise a data refresh would re-lay-out the list on every publish, which is what
+        /// stalled scrolling during a latency test.
+        private var needsRelayout = true
+
+        func updateLayoutHints(width: CGFloat?, maxHeight: CGFloat?) {
+            if self.width != width || self.maxHeight != maxHeight {
+                self.needsRelayout = true
+            }
+            self.width = width
+            self.maxHeight = maxHeight
+        }
 
         init(
             anchorHovered: Binding<Bool>,
@@ -377,7 +389,11 @@ private struct SideAttachedPopoverHost<Content: View>: NSViewRepresentable {
             let shouldShow = self.popoverRequested.wrappedValue && !self.suppressAutoOpen.wrappedValue
             if shouldShow {
                 self.cancelPendingClose()
-                self.showOrUpdate()
+                self.applyAppearanceIfNeeded()
+                if !self.panel.isVisible || self.needsRelayout {
+                    self.needsRelayout = false
+                    self.showOrUpdate()
+                }
                 return
             }
 
@@ -385,6 +401,15 @@ private struct SideAttachedPopoverHost<Content: View>: NSViewRepresentable {
                 self.closeNow()
             } else {
                 self.evaluateAndCloseIfNeeded()
+            }
+        }
+
+        private func applyAppearanceIfNeeded() {
+            guard let hostWindow else { return }
+            let appearance = hostWindow.effectiveAppearance
+            if self.panel.appearance?.name != appearance.name {
+                self.panel.appearance = appearance
+                self.hostingController.view.appearance = appearance
             }
         }
 
@@ -449,6 +474,7 @@ private struct SideAttachedPopoverHost<Content: View>: NSViewRepresentable {
                 self.panel.orderOut(nil)
             }
             self.panelHovering = false
+            self.needsRelayout = true
             self.reportVisibility(false)
             if SideAttachedPopoverRegistry.activeCoordinator === self {
                 SideAttachedPopoverRegistry.activeCoordinator = nil

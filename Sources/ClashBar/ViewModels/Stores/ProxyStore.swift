@@ -69,8 +69,60 @@ final class ProxyStore: ObservableObject {
         willSet { self.publishChangeIfNeeded(current: self.isRuleProvidersRefreshing, next: newValue) }
     }
 
+    private var pendingMeasuredDelays: [(name: String, value: Int)] = []
+    private var measuredDelayFlushTask: Task<Void, Never>?
+    private var hasPendingChangeNotification = false
+    private var changeNotificationTask: Task<Void, Never>?
+
+    /// Latency results arrive in bursts while a group/all-group health check runs. Applying them one
+    /// by one invalidated the whole proxy UI (and every open node list) dozens of times per second,
+    /// which is what made scrolling drop frames. Buffer them and publish once per window instead.
+    func applyMeasuredDelays(_ delays: [String: Int]) {
+        guard !delays.isEmpty else { return }
+        self.pendingMeasuredDelays.append(contentsOf: delays.map { (name: $0.key, value: $0.value) })
+        guard self.measuredDelayFlushTask == nil else { return }
+        self.measuredDelayFlushTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: Self.measuredDelayFlushWindowNanoseconds)
+            guard let self else { return }
+            self.measuredDelayFlushTask = nil
+            self.flushMeasuredDelays()
+        }
+    }
+
+    private func flushMeasuredDelays() {
+        self.measuredDelayFlushTask?.cancel()
+        self.measuredDelayFlushTask = nil
+        guard !self.pendingMeasuredDelays.isEmpty else { return }
+
+        let measured = self.pendingMeasuredDelays
+        self.pendingMeasuredDelays.removeAll(keepingCapacity: true)
+
+        var samples = self.proxyDelaySamples
+        for item in measured {
+            var series = samples[item.name] ?? []
+            series.append(item.value)
+            if series.count > ProxyDelayHistory.limit {
+                series = Array(series.suffix(ProxyDelayHistory.limit))
+            }
+            samples[item.name] = series
+        }
+        self.proxyDelaySamples = samples
+    }
+
+    private static let measuredDelayFlushWindowNanoseconds: UInt64 = 120_000_000
+    private static let changeCoalescingWindowNanoseconds: UInt64 = 16_000_000
+
     private func publishChangeIfNeeded<Value: Equatable>(current: Value, next: Value) {
         guard current != next else { return }
-        self.objectWillChange.send()
+        self.hasPendingChangeNotification = true
+        guard self.changeNotificationTask == nil else { return }
+        self.changeNotificationTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: Self.changeCoalescingWindowNanoseconds)
+            guard let self else { return }
+            self.changeNotificationTask = nil
+            guard self.hasPendingChangeNotification else { return }
+            self.hasPendingChangeNotification = false
+            self.objectWillChange.send()
+        }
     }
 }

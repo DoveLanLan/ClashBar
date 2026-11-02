@@ -264,33 +264,28 @@ extension ProxyTabView {
             if groups.isEmpty {
                 emptyCard(tr("ui.empty.proxy_groups"))
             } else {
+                let delayLookup = appViewModel.makeProxyDelayLookup()
                 VStack(spacing: T.space2) {
                     ForEach(groups, id: \.name) { group in
-                        self.proxyGroupInlineRow(group)
+                        self.proxyGroupInlineRow(group, delayLookup: delayLookup)
                     }
                 }
             }
         }
     }
 
-    func proxyGroupInlineRow(_ group: ProxyGroup) -> some View {
+    func proxyGroupInlineRow(_ group: ProxyGroup, delayLookup: ProxyDelayLookup) -> some View {
         let currentNode = group.now ?? tr("ui.common.na")
-        let delaySamples = appViewModel.delaySamples(
-            group: group.name,
-            node: currentNode,
-            fallbackToGroupHistory: true)
+        let delaySamples = delayLookup.samples(for: currentNode, fallbackToGroup: group.name)
         let delayValue = delaySamples.last
-        let delayText = appViewModel.delayText(
-            group: group.name,
-            node: currentNode,
-            fallbackToGroupHistory: true)
+        let delayText = appViewModel.delayText(forValue: delayValue)
         let nodeCount = group.all.count
         let iconURL = self.proxyGroupIconURL(group)
         let hasLeadingIcon = iconURL != nil
         let rowHorizontalPadding = T.space4
         let rowVerticalPadding: CGFloat = T.space1
 
-        return AttachedPopoverMenu { isHovered in
+        return AttachedPopoverMenu(maxHeight: T.proxyGroupPopoverMaxHeight) { isHovered in
             GeometryReader { geo in
                 let columns = self.proxyGroupMainColumnWidths(
                     totalWidth: geo.size.width,
@@ -365,19 +360,20 @@ extension ProxyTabView {
             }
 
             let nodes = sortGroupNodesByLatency
-                ? self.sortedGroupNodes(group)
-                : self.defaultGroupNodes(group)
+                ? self.sortedGroupNodes(group, delayLookup: delayLookup)
+                : self.defaultGroupNodes(group, delayLookup: delayLookup)
             FrozenPopoverNodesList(nodes: nodes, emptyText: tr("ui.common.na")) { node in
-                let nodeSamples = appViewModel.delaySamples(group: group.name, node: node)
+                let nodeSamples = delayLookup.samples(for: node)
                 let nodeDelay = nodeSamples.last
                 ProxyGroupPopoverNodeItem(
                     title: node,
                     typeText: proxyStore.proxyNodeTypes[node].trimmedNonEmpty,
-                    delayText: appViewModel.delayText(group: group.name, node: node),
+                    delayText: appViewModel.delayText(forValue: nodeDelay),
                     delaySamples: nodeSamples,
                     delayColor: latencyColor(nodeDelay),
                     isTesting: appViewModel.isProxyLatencyTesting(group: group.name, node: node),
                     selected: node == group.now,
+                    showsLatencyHistory: showLatencyHistory,
                     testLatencyLabel: tr("ui.action.test_latency"),
                     onTestLatency: {
                         await appViewModel.refreshProxyLatency(group: group.name, node: node)
@@ -501,27 +497,72 @@ extension ProxyTabView {
         return ordered
     }
 
-    func sortedGroupNodes(_ group: ProxyGroup) -> [String] {
-        self.sortedNodes(names: group.all, latencyForNode: { appViewModel.delayValue(group: group.name, node: $0) })
+    func sortedGroupNodes(_ group: ProxyGroup, delayLookup: ProxyDelayLookup) -> [String] {
+        let unique = self.orderedUniqueNames(group.all)
+        let sorted = Self.sortedNodeNamesByLatency(unique, delayLookup: delayLookup)
+        guard appViewModel.hideUnavailableProxyNodes else { return sorted }
+        return sorted.filter { self.isProxyNodeAvailable(delayLookup.value(for: $0)) }
     }
 
-    func defaultGroupNodes(_ group: ProxyGroup) -> [String] {
+    func defaultGroupNodes(_ group: ProxyGroup, delayLookup: ProxyDelayLookup) -> [String] {
         let unique = self.orderedUniqueNames(group.all)
         guard appViewModel.hideUnavailableProxyNodes else { return unique }
-        return unique.filter { self.isProxyNodeAvailable(appViewModel.delayValue(group: group.name, node: $0)) }
+        return unique.filter { self.isProxyNodeAvailable(delayLookup.value(for: $0)) }
     }
 
-    private func sortedNodes(names: [String], latencyForNode: (String) -> Int?) -> [String] {
-        let unique = self.orderedUniqueNames(names)
-        let sorted = unique.sorted { lhs, rhs in
-            let cmp = self.compareLatency(lhs: latencyForNode(lhs), rhs: latencyForNode(rhs), ascending: true)
-            if cmp != .orderedSame {
-                return cmp == .orderedAscending
-            }
-            return lhs.localizedStandardCompare(rhs) == .orderedAscending
+    private struct NodeLatencySortEntry {
+        let name: String
+        let isAvailable: Bool
+        let latency: Int
+    }
+
+    /// Two-phase sort: compare plain integers first, then only re-sort runs of equal latency
+    /// alphabetically. The previous single comparator resolved the node latency (a `proxyGroups`
+    /// scan) twice per comparison and ran `localizedStandardCompare` on every tie, which cost
+    /// ~10-25 ms for a 1000+ node group on every refresh.
+    private static func sortedNodeNamesByLatency(
+        _ names: [String],
+        delayLookup: ProxyDelayLookup) -> [String]
+    {
+        guard names.count > 1 else { return names }
+
+        var entries: [NodeLatencySortEntry] = []
+        entries.reserveCapacity(names.count)
+        for name in names {
+            let value = delayLookup.value(for: name)
+            let isAvailable = (value ?? 0) > 0
+            entries.append(NodeLatencySortEntry(
+                name: name,
+                isAvailable: isAvailable,
+                latency: isAvailable ? (value ?? 0) : 0))
         }
-        guard appViewModel.hideUnavailableProxyNodes else { return sorted }
-        return sorted.filter { self.isProxyNodeAvailable(latencyForNode($0)) }
+
+        entries.sort { lhs, rhs in
+            if lhs.isAvailable != rhs.isAvailable {
+                return lhs.isAvailable
+            }
+            return lhs.latency < rhs.latency
+        }
+
+        var ordered: [String] = []
+        ordered.reserveCapacity(entries.count)
+        var runStart = entries.startIndex
+        for index in entries.indices.dropFirst() {
+            let runEnds = entries[index].isAvailable != entries[runStart].isAvailable
+                || entries[index].latency != entries[runStart].latency
+            guard runEnds else { continue }
+            ordered.append(contentsOf: Self.alphabeticallyOrderedNames(entries[runStart..<index]))
+            runStart = index
+        }
+        ordered.append(contentsOf: Self.alphabeticallyOrderedNames(entries[runStart...]))
+        return ordered
+    }
+
+    private static func alphabeticallyOrderedNames(_ entries: ArraySlice<NodeLatencySortEntry>) -> [String] {
+        guard entries.count > 1 else { return entries.map(\.name) }
+        return entries
+            .map(\.name)
+            .sorted { $0.localizedStandardCompare($1) == .orderedAscending }
     }
 }
 
@@ -542,17 +583,20 @@ private struct FrozenPopoverNodesList<Row: View>: View {
     var body: some View {
         if self.frozenNodes.isEmpty {
             Text(self.emptyText)
-                .font(.app(size: T.FontSize.caption, weight: .regular))
+                .font(AppFont.caption)
                 .foregroundStyle(self.nativeSecondaryLabel)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, T.space6)
                 .padding(.vertical, T.space4)
         } else {
-            VStack(spacing: 0) {
+            LazyVStack(spacing: 0) {
                 ForEach(self.frozenNodes, id: \.self) { node in
                     self.row(node)
                 }
             }
+            .frame(
+                height: CGFloat(self.frozenNodes.count) * T.popoverNodeRowHeight,
+                alignment: .top)
         }
     }
 }
@@ -565,13 +609,13 @@ private struct ProxyGroupPopoverNodeItem: View {
     let delayColor: Color
     let isTesting: Bool
     let selected: Bool
+    let showsLatencyHistory: Bool
     let testLatencyLabel: String
     let onTestLatency: () async -> Void
     let action: () -> Void
 
     @State private var isHovered = false
     @State private var isTestButtonHovered = false
-    @AppStorage("clashbar.proxy.group.show_latency_history") private var showLatencyHistory: Bool = false
 
     private var delayValue: Int? {
         self.delaySamples.last
@@ -582,23 +626,22 @@ private struct ProxyGroupPopoverNodeItem: View {
             Button(action: self.action) {
                 HStack(spacing: T.space1) {
                     Image(systemName: self.selected ? "checkmark.circle.fill" : "circle")
-                        .font(.app(size: T.FontSize.caption, weight: .semibold))
+                        .font(AppFont.captionSemibold)
                         .foregroundStyle(self
                             .selected ? self.nativeAccent : self.nativeTertiaryLabel)
                         .frame(width: 11, alignment: .center)
 
                     Text(self.title)
-                        .font(.app(size: T.FontSize.body, weight: self.selected ? .semibold : .medium))
+                        .font(self.selected ? AppFont.bodySemibold : AppFont.bodyMedium)
                         .foregroundStyle(self.selected ? self.nativePrimaryLabel : self.nativeSecondaryLabel)
                         .lineLimit(1)
                         .truncationMode(.middle)
-                        .minimumScaleFactor(T.minimumScale)
 
                     Spacer(minLength: 0)
 
                     if let typeText = self.typeText {
                         Text(typeText)
-                            .font(.app(size: T.FontSize.caption, weight: .medium))
+                            .font(AppFont.captionMedium)
                             .foregroundStyle(self.selected ? self.nativePrimaryLabel.opacity(0.72) : self
                                 .nativeSecondaryLabel
                                 .opacity(0.82))
@@ -643,7 +686,7 @@ private struct ProxyGroupPopoverNodeItem: View {
                     Task { await self.onTestLatency() }
                 } label: {
                     Image(systemName: "gauge.with.dots.needle.50percent")
-                        .font(.app(size: T.FontSize.caption, weight: .semibold))
+                        .font(AppFont.captionSemibold)
                         .symbolRenderingMode(.hierarchical)
                         .foregroundStyle(self.isTestButtonHovered ? self.testButtonTint : self.testButtonBaseTint)
                         .frame(width: 18, height: 18, alignment: .center)
@@ -683,13 +726,12 @@ private struct ProxyGroupPopoverNodeItem: View {
             self.delayBadge(
                 samples: self.delaySamples,
                 fallbackText: self.delayText,
-                showsHistory: self.showLatencyHistory)
+                showsHistory: self.showsLatencyHistory)
         } else {
             Text(self.delayText)
-                .font(.app(size: T.FontSize.caption, weight: .regular))
+                .font(AppFont.caption)
                 .foregroundStyle(self.delayColor)
                 .lineLimit(1)
-                .minimumScaleFactor(T.minimumScale)
         }
     }
 }
@@ -700,7 +742,7 @@ extension View {
         return HStack(alignment: .center, spacing: 5) {
             LatencySignalBars(samples: samples, showsHistory: showsHistory)
             Text(value == 0 ? fallbackText : "\(value)")
-                .font(.system(size: T.FontSize.caption, weight: .medium, design: .monospaced))
+                .font(AppFont.delayMetric)
                 .foregroundStyle(self.nativePrimaryLabel)
                 .lineLimit(1)
         }

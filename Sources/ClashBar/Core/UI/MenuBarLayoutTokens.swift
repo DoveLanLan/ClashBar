@@ -17,6 +17,12 @@ enum MenuBarLayoutTokens {
     static let compactRowHeight: CGFloat = 20
     static let rowHeight: CGFloat = 32
 
+    /// Height of one node row in a proxy group popover: the fixed row height plus its vertical padding.
+    static let popoverNodeRowHeight: CGFloat = compactRowHeight + (space1 * 2)
+    /// Cap for proxy group popovers so a 1000+ node group scrolls instead of building a
+    /// screen-tall document view.
+    static let proxyGroupPopoverMaxHeight: CGFloat = 520
+
     static let rowLeadingIcon: CGFloat = 16
 
     static let minimumScale: CGFloat = 0.85

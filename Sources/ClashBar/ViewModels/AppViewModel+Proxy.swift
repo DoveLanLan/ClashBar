@@ -184,30 +184,27 @@ extension AppViewModel {
     }
 
     private func applyMeasuredNodeDelays(_ delays: [String: Int]) {
-        guard !delays.isEmpty else { return }
-
-        var samples = self.proxyDelaySamples
-        for (name, delay) in delays {
-            var series = samples[name] ?? []
-            series.append(delay)
-            if series.count > ProxyDelayHistory.limit {
-                series = Array(series.suffix(ProxyDelayHistory.limit))
-            }
-            samples[name] = series
-        }
-        self.proxyDelaySamples = samples
+        self.proxyStore.applyMeasuredDelays(delays)
     }
 
-    func delayText(group: String, node: String, fallbackToGroupHistory: Bool = false) -> String {
-        guard let value = delayValue(
-            group: group,
-            node: node,
-            fallbackToGroupHistory: fallbackToGroupHistory)
-        else { return tr("ui.common.unknown") }
+    /// One lookup per render pass; pass it down instead of resolving per node/per comparison.
+    func makeProxyDelayLookup() -> ProxyDelayLookup {
+        ProxyDelayLookup(samplesByNode: self.proxyDelaySamples, groups: self.proxyGroups)
+    }
+
+    func delayText(forValue value: Int?) -> String {
+        guard let value else { return tr("ui.common.unknown") }
         if value == 0 {
             return tr("ui.common.timeout")
         }
         return tr("ui.common.latency_ms", value)
+    }
+
+    func delayText(group: String, node: String, fallbackToGroupHistory: Bool = false) -> String {
+        self.delayText(forValue: self.delayValue(
+            group: group,
+            node: node,
+            fallbackToGroupHistory: fallbackToGroupHistory))
     }
 
     func delayValue(group: String, node: String, fallbackToGroupHistory: Bool = false) -> Int? {
@@ -215,36 +212,9 @@ extension AppViewModel {
     }
 
     func delaySamples(group: String, node: String, fallbackToGroupHistory: Bool = false) -> [Int] {
-        for name in self.proxySelectionChain(startingAt: node).reversed() {
-            if let samples = self.proxyDelaySamples[name], !samples.isEmpty {
-                return samples
-            }
-        }
-        if fallbackToGroupHistory {
-            for name in self.proxySelectionChain(startingAt: group).reversed() {
-                if let samples = self.proxyDelaySamples[name], !samples.isEmpty {
-                    return samples
-                }
-            }
-        }
-        return []
-    }
-
-    private func proxySelectionChain(startingAt start: String) -> [String] {
-        var chain: [String] = []
-        var current = start
-        var seen = Set<String>()
-        while seen.insert(current).inserted {
-            chain.append(current)
-            guard let nested = self.proxyGroups.first(where: { $0.name == current }),
-                  !nested.all.isEmpty,
-                  let next = nested.now?.trimmedNonEmpty
-            else {
-                break
-            }
-            current = next
-        }
-        return chain
+        fallbackToGroupHistory
+            ? self.makeProxyDelayLookup().samples(for: node, fallbackToGroup: group)
+            : self.makeProxyDelayLookup().samples(for: node)
     }
 
     func controllerHost() -> String {

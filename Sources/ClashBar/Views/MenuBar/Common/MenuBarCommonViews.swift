@@ -540,18 +540,6 @@ extension View {
         .help(configuration.helpText)
     }
 
-    func compareLatency(lhs: Int?, rhs: Int?, ascending: Bool) -> ComparisonResult {
-        let leftAvailable = self.isProxyNodeAvailable(lhs)
-        let rightAvailable = self.isProxyNodeAvailable(rhs)
-        if leftAvailable != rightAvailable {
-            return leftAvailable ? .orderedAscending : .orderedDescending
-        }
-        guard leftAvailable, rightAvailable, let lhs, let rhs, lhs != rhs else {
-            return .orderedSame
-        }
-        return (ascending ? lhs < rhs : lhs > rhs) ? .orderedAscending : .orderedDescending
-    }
-
     func isProxyNodeAvailable(_ latency: Int?) -> Bool {
         guard let latency else { return false }
         return latency > 0
