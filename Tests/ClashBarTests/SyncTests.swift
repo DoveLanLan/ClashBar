@@ -141,6 +141,19 @@ struct SyncTests {
         try expect(downloadedURLs.isEmpty)
     }
 
+    func deepLinkParsingSupportsWebsiteInstallLinks() throws {
+        let link = try expectValue(ClashDeepLink.parse(URL(
+            string: "clash://install-config?url=https%3A%2F%2Fexample.com%2Fsub%3Ftoken%3Dabc%26format%3Dclash&name=ikuuu.yaml")!))
+        try expect(link.remoteURL.absoluteString == "https://example.com/sub?token=abc&format=clash")
+        try expect(link.suggestedFileName == "ikuuu.yaml")
+
+        let pathForm = try expectValue(ClashDeepLink.parse(URL(
+            string: "clashbar://install-config?subscription=https%3A%2F%2Fexample.com%2Fsub")!))
+        try expect(pathForm.remoteURL.absoluteString == "https://example.com/sub")
+        try expect(ClashDeepLink.parse(URL(string: "https://example.com/sub")!) == nil)
+        try expect(ClashDeepLink.parse(URL(string: "clash://install-config")!) == nil)
+    }
+
     private static func subscriptions(for names: [String]) -> [String: RemoteConfigSubscription] {
         Dictionary(uniqueKeysWithValues: names.map { name in
             (name, RemoteConfigSubscription(
@@ -241,6 +254,17 @@ private func expect(
     }
 }
 
+private func expectValue<Value>(
+    _ value: Value?,
+    file: StaticString = #filePath,
+    line: UInt = #line) throws -> Value
+{
+    guard let value else {
+        throw TestFailure(message: "Expected value at \(file):\(line)")
+    }
+    return value
+}
+
 @MainActor
 private func expectThrows<T: Error>(_ type: T.Type, operation: () async throws -> Void) async throws {
     do {
@@ -264,6 +288,7 @@ struct SyncTestRunner {
             ("old bundle downloads only missing subscriptions", { try await tests.oldBundleDownloadsOnlyMissingSubscriptions() }),
             ("missing subscription download errors propagate", { try await tests.missingSubscriptionDownloadFailureIsReported() }),
             ("invalid content and unsafe names rejected", { try await tests.missingSubscriptionValidation() }),
+            ("website deep links parse subscription URL and name", { try tests.deepLinkParsingSupportsWebsiteInstallLinks() }),
         ]
         var failures = 0
         for (name, test) in cases {

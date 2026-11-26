@@ -8,7 +8,6 @@ private typealias T = MenuBarLayoutTokens
 @MainActor
 extension AppViewModel {
     func importRemoteConfigFile() async {
-        guard let configDirectory = ensureConfigDirectoryAvailable() else { return }
         guard let input = promptRemoteConfigImportInput() else { return }
 
         let urlText = input.urlString.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -19,11 +18,44 @@ extension AppViewModel {
             return
         }
 
-        let fallbackName = self.inferredRemoteConfigFileName(from: remoteURL)
-        guard let fileName = normalizedConfigFileName(input.fileName, fallback: fallbackName) else {
-            let message = tr("log.config.import.invalid_filename", input.fileName)
+        await self.importRemoteConfig(
+            from: remoteURL,
+            suggestedFileName: input.fileName,
+            autoUpdateEnabled: input.autoUpdateEnabled,
+            intervalHours: input.autoUpdateIntervalHours,
+            selectAfterImport: false)
+    }
+
+    /// Handles `clash://install-config?...` links opened by subscription websites.
+    func handleClashDeepLink(_ url: URL) async {
+        guard let link = ClashDeepLink.parse(url) else {
+            let message = tr("log.config.remote.invalid_deep_link")
             appendLog(level: "error", message: message)
-            self.presentRemoteConfigImportResultAlert(success: false, message: message)
+            presentRemoteConfigImportResultAlert(success: false, message: message)
+            return
+        }
+
+        await self.importRemoteConfig(
+            from: link.remoteURL,
+            suggestedFileName: link.suggestedFileName ?? "",
+            autoUpdateEnabled: true,
+            intervalHours: RemoteConfigSubscription.defaultAutoUpdateIntervalHours,
+            selectAfterImport: true)
+    }
+
+    private func importRemoteConfig(
+        from remoteURL: URL,
+        suggestedFileName: String,
+        autoUpdateEnabled: Bool,
+        intervalHours: Int,
+        selectAfterImport: Bool) async
+    {
+        guard let configDirectory = ensureConfigDirectoryAvailable() else { return }
+        let fallbackName = self.inferredRemoteConfigFileName(from: remoteURL)
+        guard let fileName = normalizedConfigFileName(suggestedFileName, fallback: fallbackName) else {
+            let message = tr("log.config.import.invalid_filename", suggestedFileName)
+            appendLog(level: "error", message: message)
+            presentRemoteConfigImportResultAlert(success: false, message: message)
             return
         }
 
@@ -45,8 +77,8 @@ extension AppViewModel {
 
             let subscription = RemoteConfigSubscription(
                 urlString: remoteURL.absoluteString,
-                autoUpdateEnabled: input.autoUpdateEnabled,
-                autoUpdateIntervalHours: input.autoUpdateIntervalHours,
+                autoUpdateEnabled: autoUpdateEnabled,
+                autoUpdateIntervalHours: intervalHours,
                 lastUpdateCheckAt: Date())
             self.upsertRemoteConfigSubscription(for: fileName, subscription: subscription)
             let message = tr("log.config.import_remote.success", fileName)
@@ -54,6 +86,10 @@ extension AppViewModel {
 
             if existsAlready, self.shouldAutoReloadCurrentConfig(updatedFileNames: [fileName]) {
                 await self.reloadConfig()
+            }
+
+            if selectAfterImport {
+                await self.selectConfigFile(named: fileName)
             }
 
             self.presentRemoteConfigImportResultAlert(success: true, message: message)

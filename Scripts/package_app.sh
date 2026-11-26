@@ -269,6 +269,17 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 <key>CFBundleShortVersionString</key><string>${APP_VERSION}</string>
 <key>CFBundleVersion</key><string>${BUILD_NUMBER}</string>
 $ICON_PLIST_ENTRY
+<key>CFBundleURLTypes</key>
+<array>
+<dict>
+<key>CFBundleURLName</key><string>${BUNDLE_ID}.deep-link</string>
+<key>CFBundleURLSchemes</key>
+<array>
+<string>clash</string>
+<string>clashbar</string>
+</array>
+</dict>
+</array>
 <key>ClashBarBundlesMihomoCore</key>${BUNDLES_MIHOMO_CORE_PLIST_VALUE}
 <key>NSLocationWhenInUseUsageDescription</key><string>ClashBar uses your current Wi-Fi name to switch proxy config profiles automatically.</string>
 <key>NSAppTransportSecurity</key>

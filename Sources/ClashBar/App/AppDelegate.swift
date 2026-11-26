@@ -5,6 +5,7 @@ final class ClashBarAppDelegate: NSObject, NSApplicationDelegate {
     let appViewModel = AppViewModel(dependencies: .live)
     private var statusItemController: StatusItemController?
     private var windowObservers: [any NSObjectProtocol] = []
+    private var pendingClashDeepLinks: [URL] = []
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         UserDefaults.standard.register(defaults: [
@@ -23,6 +24,7 @@ final class ClashBarAppDelegate: NSObject, NSApplicationDelegate {
         self.appViewModel.start()
         self.statusItemController = StatusItemController(appViewModel: self.appViewModel)
         self.appViewModel.presentInitialNoCoreSetupGuideIfNeeded()
+        self.drainPendingClashDeepLinks()
 
         DispatchQueue.main.async { [weak self] in
             self?.suppressNonPanelWindows()
@@ -45,6 +47,22 @@ final class ClashBarAppDelegate: NSObject, NSApplicationDelegate {
         false
     }
 
+    func application(_ application: NSApplication, open urls: [URL]) {
+        for url in urls {
+            guard ClashDeepLink.parse(url) != nil else {
+                self.appViewModel.appendLog(
+                    level: "error",
+                    message: self.appViewModel.tr("log.config.remote.invalid_deep_link"))
+                continue
+            }
+            guard self.appViewModel.didStart else {
+                self.pendingClashDeepLinks.append(url)
+                continue
+            }
+            self.scheduleClashDeepLink(url)
+        }
+    }
+
     func applicationDidBecomeActive(_ notification: Notification) {
         self.suppressNonPanelWindows()
         self.appViewModel.handleApplicationDidBecomeActive()
@@ -63,6 +81,19 @@ final class ClashBarAppDelegate: NSObject, NSApplicationDelegate {
 
     func showSettingsPanel() {
         self.statusItemController?.presentPopover(tab: .system)
+    }
+
+    private func drainPendingClashDeepLinks() {
+        let urls = self.pendingClashDeepLinks
+        self.pendingClashDeepLinks.removeAll()
+        for url in urls { self.scheduleClashDeepLink(url) }
+    }
+
+    private func scheduleClashDeepLink(_ url: URL) {
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.appViewModel.handleClashDeepLink(url)
+        }
     }
 
     private func setupWindowSuppression() {

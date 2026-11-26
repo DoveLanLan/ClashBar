@@ -333,6 +333,7 @@
 "log.config.import_remote.success" = "已导入订阅：%@";
 "log.config.import_remote.failed" = "导入订阅失败（%@）: %@";
 "log.config.remote.invalid_url" = "订阅链接不合法: %@";
+"log.config.remote.invalid_deep_link" = "一键导入链接无效，请确认链接包含有效的 Clash 订阅地址。";
 "log.config.remote.no_sources" = "没有可更新的订阅来源";
 "log.config.remote.update_item_failed" = "订阅更新失败（%@）: %@";
 "log.config.remote.update_summary" = "订阅更新完成：成功 %d，失败 %d";

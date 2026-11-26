@@ -60,6 +60,7 @@
 
 - 🪶 **轻量**：去掉 Core 约 3 MB 内
 - 🧭 **菜单栏优先**：配置导入/更新、节点切换、延迟测试、规则与连接排障
+- 🔗 **订阅一键导入**：支持订阅网站的 `clash://install-config?url=...` 链接
 - 🔐 **系统集成**：系统代理、开机启动
 - 📊 **可观测**：实时流量、连接、内存、日志过滤
 - 🌍 **中英双语**：简体中文 / English
@@ -121,6 +122,10 @@ brew uninstall --zap --cask clashbar
 
 📁 运行时数据目录：`~/Library/Application Support/clashbar`  
 🧩 内置内核会复制到：`~/Library/Application Support/clashbar/core/mihomo`
+
+### 从订阅网站一键导入
+
+已安装的 ClashBar 会注册 `clash://` 和 `clashbar://` 链接。订阅网站提供一键导入时，浏览器确认打开 ClashBar 后，应用会下载 YAML、保存订阅地址并选中刚导入的配置。网站可使用 `clash://install-config?url=<URL 编码后的 HTTPS 订阅地址>`，并可附加 `name=` 指定文件名。
 
 ## 🛠️ 开发构建
 

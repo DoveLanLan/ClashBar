@@ -331,6 +331,7 @@
 "log.config.import_remote.success" = "Imported subscription: %@";
 "log.config.import_remote.failed" = "Failed to import subscription (%@): %@";
 "log.config.remote.invalid_url" = "Invalid subscription URL: %@";
+"log.config.remote.invalid_deep_link" = "The one-click import link is invalid or missing a Clash subscription URL.";
 "log.config.remote.no_sources" = "No subscription sources available for update";
 "log.config.remote.update_item_failed" = "Subscription update failed (%@): %@";
 "log.config.remote.update_summary" = "Subscription update completed: %d succeeded, %d failed";
