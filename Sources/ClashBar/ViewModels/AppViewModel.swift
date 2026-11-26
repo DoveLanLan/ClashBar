@@ -410,7 +410,7 @@ final class AppViewModel: ObservableObject {
     var pendingConfigChangeRestart = false
     var isLatestAppReleaseCheckInFlight = false
 
-    let defaults = UserDefaults.standard
+    let defaults: UserDefaults
     @AppStorage("clashbar.auto.start.core") var autoStartCore: Bool = false
     @AppStorage("clashbar.ssid.strategy.enabled") var ssidStrategyEnabledStorage: Bool = false
     @AppStorage("clashbar.statusbar.display.mode") private var statusBarDisplayModeRaw: String = StatusBarDisplayMode
@@ -479,7 +479,8 @@ final class AppViewModel: ObservableObject {
     let bundlesMihomoCore: Bool
     var didPresentInitialNoCoreSetupGuide = false
 
-    init(dependencies: AppDependencies) {
+    init(dependencies: AppDependencies, defaults: UserDefaults = .standard) {
+        self.defaults = defaults
         self.processManager = dependencies.processManager
         self.configService = dependencies.configService
         self.systemProxyService = dependencies.systemProxyService

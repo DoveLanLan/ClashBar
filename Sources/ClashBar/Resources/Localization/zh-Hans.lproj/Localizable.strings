@@ -436,4 +436,4 @@
 "app.sync.pushed" = "已上传到云端";
 "app.sync.pulled" = "已从云端下载";
 "app.sync.error.not_configured" = "请先填写 WebDAV 配置";
-"ui.sync.hint" = "同步当前配置与设置。坚果云请使用「应用密码」，不是登录密码。";
+"ui.sync.hint" = "同步全部本地配置、远程订阅配置与设置。坚果云请使用「应用密码」，不是登录密码。";

@@ -61,15 +61,13 @@ extension AppViewModel {
 
     /// 汇总当前配置与设置，生成待同步快照。
     ///
-    /// 只收集"非订阅派生"的配置：订阅内容由各平台自行按 URL 拉取，纳入同步只会让
-    /// 设备之间用过期的节点列表互相覆盖。判定依据就是 `remoteConfigSubscriptions` 的 key。
+    /// 本地配置与远程订阅当前使用的 YAML 都参与打包；订阅地址和更新设置另存于 payload。
+    /// 接收端先恢复文件，再恢复订阅关系，无需重新下载即可切换到同一份配置。
     func makeSyncSnapshot(at date: Date = Date()) throws -> LocalSyncSnapshot {
         let directory = self.workingDirectoryManager.configDirectoryURL
-        let subscriptionNames = Set(self.remoteConfigSubscriptions.keys)
 
         let configs = try ConfigDirectoryManager
             .scanConfigFiles(in: directory)
-            .filter { !subscriptionNames.contains($0.lastPathComponent) }
             .map { url -> LocalConfigFile in
                 let name = try SyncService.normalizeConfigFileName(url.lastPathComponent)
                 guard let data = try? Data(contentsOf: url) else {
@@ -159,6 +157,7 @@ extension AppViewModel {
         }
         self.remoteConfigSubscriptions = subscriptions
         self.persistRemoteConfigSubscriptions()
+        self.restartRemoteConfigBackgroundTasksIfNeeded()
 
         // 系统代理绕过
         if !payload.systemProxy.exceptions.isEmpty {
@@ -182,8 +181,8 @@ extension AppViewModel {
         // 配置文件已由 SyncService 写入磁盘，刷新文件列表并重载核心
         self.reloadConfigFileList()
 
-        // 只有目标文件确实存在时才切换选中项：`selectedConfig` 可能是一个尚未在本机
-        // 下载的订阅配置（订阅只同步 URL），直接写 defaults 会让 UI 指向不存在的文件。
+        // 文件（包括远程订阅的 YAML）已恢复，按来源设备的选中项切换。
+        // 对损坏或旧版 payload 仍保留存在性检查，避免选中一个不存在的文件。
         let target = payload.selectedConfig.trimmed
         guard !target.isEmpty,
               let matched = self.configService.availableConfigs.first(where: {

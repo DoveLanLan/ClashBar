@@ -17,7 +17,7 @@ WITH_CORE ?= 0
 RELEASE_OPTIMIZE_FOR_SIZE ?= 1
 STRIP_BINARIES ?= 1
 
-.PHONY: help build dist dmg clean
+.PHONY: help build dist dmg clean test
 
 help:
 	@printf "%s\n" \
@@ -27,6 +27,7 @@ help:
 		"  make build        Build dist/$(APP_NAME).app (default: no core)" \
 		"  make dist         Build app + dmg (default: no core)" \
 		"  make dmg          Build dmg from existing dist/$(APP_NAME).app" \
+		"  make test         Run sync regression tests (Command Line Tools supported)" \
 		"  make clean        Remove .build, dist, .swiftpm and Packages" \
 		"" \
 		"Overrides:" \
@@ -37,6 +38,9 @@ help:
 		"  APP_VERSION=...   Version used for Info.plist and dmg naming" \
 		"  BUILD_NUMBER=...  Build number used for Info.plist" \
 		"  DMG_SUFFIX=...    Optional dmg filename suffix"
+
+test:
+	bash "$(SCRIPTS_DIR)/test_sync.sh"
 
 format:
 	swiftformat . --config .swiftformat 

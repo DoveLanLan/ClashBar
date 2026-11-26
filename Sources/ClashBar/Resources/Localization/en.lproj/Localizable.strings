@@ -436,4 +436,4 @@
 "app.sync.pushed" = "Uploaded to cloud";
 "app.sync.pulled" = "Downloaded from cloud";
 "app.sync.error.not_configured" = "Please configure WebDAV first";
-"ui.sync.hint" = "Sync current config and settings. For Nutstore, use an app password, not your login password.";
+"ui.sync.hint" = "Sync all local configs, subscription configs, and settings. For Nutstore, use an app password, not your login password.";

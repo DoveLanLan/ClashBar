@@ -10,9 +10,9 @@
 
 | 目标 | 说明 |
 |---|---|
-| **多配置可移植** | 本地所有「用户自建」的 mihomo 配置（非订阅派生）在 macOS / Windows 上格式完全一致，打包同步 |
+| **多配置可移植** | 所有本地配置与远程订阅当前使用的 mihomo YAML 打包同步，接收端恢复同一份配置快照 |
 | **设置可解释** | 各平台的原生设置存储不同（UserDefaults vs 注册表/JSON），通过 `settings.json` 做中间层 |
-| **低流量** | 只同步 1 个包 + 1 个元信息文件，避免把订阅缓存、规则缓存、mmdb 推到云端 |
+| **低流量** | 只同步 1 个包 + 1 个元信息文件，避免把 provider 缓存、规则缓存、mmdb 推到云端 |
 | **原子提交** | 多文件打成一个 zip 单次 `PUT`，不会出现「配置传完、设置没传完」的半套状态 |
 | **无锁依赖** | 坚果云不支持 `LOCK`/`UNLOCK`，冲突靠时间戳而非 WebDAV 锁 |
 
@@ -29,16 +29,19 @@ logs/*                            本地日志
 
 **这些文件平台相关或体积过大，同步会导致流量超限和版本错乱。**
 
-### 订阅派生的配置也不同步内容，只同步订阅本身
+### 远程订阅的配置内容与订阅信息一起同步
 
-本地 `config/` 目录下，文件名出现在 `settings.json.subscriptions[].name` 里的 `.yaml`，
-即由某个订阅 URL 拉取生成的配置，**不参与打包**。原因：
+本地 `config/` 顶层的所有 `.yaml` / `.yml` 都参与打包，包括由订阅 URL 下载的配置。
+`settings.json.subscriptions[]` 另存订阅 URL、自动更新开关、间隔与最近检查时间，用于
+恢复本地 / 远程分类及后续更新。
 
-- 订阅内容本来就该由每台设备各自按 URL 拉取，云端存一份没有收益
-- 多设备更新时间不同步，互相覆盖只会让某一端拿到过期节点列表，还白耗流量
+- 接收端先恢复 YAML，再应用订阅关系与选中项，无需重新拉取即可使用来源设备的配置。
+- `config/proxy/`、`config/rule/` 等子目录仍不打包；这些是 provider / 规则缓存。
+- 兼容早期只保存订阅 URL 的包：若订阅 YAML 既不在包内、本机也没有，则先按 URL 下载
+  并验证配置，再写入和应用设置；下载失败时报告同步失败，避免刷新列表后静默丢失订阅。
 
-同步的是 `subscriptions[]` 里的 URL / 自动更新开关 / 间隔，接收端据此自行拉取。
-判定依据是运行时的 `remoteConfigSubscriptions`（key = 文件名），而不是文件内容特征。
+是否属于远程订阅仍由 `remoteConfigSubscriptions`（key = 文件名）判定，不通过 YAML
+内容猜测；这个分类不再决定是否打包。
 
 ---
 
@@ -55,16 +58,18 @@ logs/*                            本地日志
 ```
 settings.json              # 与第 3 节 schema 一致
 config/
-├── ClashBar.yaml           # 用户自建配置，文件名即本地文件名
-└── 宝可梦星云.yaml           # 若此名字出现在 subscriptions[] 中则不会出现在这里
+├── ClashBar.yaml           # 本地配置，文件名即本地文件名
+├── ikuuu.yaml              # 远程订阅的当前 YAML
+└── 宝可梦星云.yaml           # 远程订阅的当前 YAML，订阅信息另存于 subscriptions[]
 ```
 
-> **为什么是 zip 不是散装文件**：同步的是「本地当前所有非订阅配置」，数量是可变的
+> **为什么是 zip 不是散装文件**：同步的是「本地当前所有配置（含远程订阅 YAML）」，数量是可变的
 > （0 个到 N 个）。散装文件布局下，WebDAV 没有目录级 diff，要知道该删哪个旧文件只能
 > `PROPFIND` 全量枚举——而坚果云对 `PROPFIND` 限流最严。打包后，远端内容完全由
 > `meta.json` 的清单决定，少了谁 zip 里就没有谁，不需要额外请求去发现要删除的文件。
 >
-> 配置数量为 0（用户只用订阅）时 zip 里没有 `config/` 目录，只有 `settings.json`。
+> 配置数量为 0 时 zip 里没有 `config/` 目录，只有 `settings.json`。只用订阅的设备也会
+> 打包已下载的订阅 YAML。
 
 > 建议 `<webdav-root>` 使用独立目录，例如 `https://dav.jianguoyun.com/dav/ClashBar/`。
 > 不要把文件直接放在 WebDAV 根目录，避免和用户其他文件混淆。
@@ -153,7 +158,7 @@ config/
 | `schemaVersion` | Int | ✅ | 协议版本，当前 `1` |
 | `updatedAt` | ISO8601 | ✅ | 写入时间，用于冲突判定 |
 | `updatedBy` | String | ✅ | 设备名（`hostname`） |
-| `selectedConfig` | String | ✅ | 当前激活的配置文件名（可以是本节打包的，也可以是订阅派生的） |
+| `selectedConfig` | String | ✅ | 当前激活的配置文件名，本地配置和远程订阅的 YAML 都参与打包 |
 | `core.mode` | String | ✅ | `rule` / `global` / `direct` |
 | `core.allowLan` | Bool | ✅ | mihomo `allow-lan` |
 | `core.ipv6` | Bool | ✅ | mihomo `ipv6` |
@@ -161,7 +166,7 @@ config/
 | `core.tunEnabled` | Bool | ✅ | TUN 模式 |
 | `core.logLevel` | String | ✅ | `silent`/`error`/`warning`/`info`/`debug` |
 | `core.ports.*` | Int | ✅ | `0` 表示不监听 |
-| `subscriptions[]` | Array | ✅ | 空数组表示无订阅；`name` 即对应本地文件名，用于判定该文件是否排除在打包之外 |
+| `subscriptions[]` | Array | ✅ | 空数组表示无订阅；`name` 即对应 YAML 文件名，用于恢复订阅分类及更新设置 |
 | `subscriptions[].name` | String | ✅ | 显示名 = 本地文件名，作为唯一键 |
 | `subscriptions[].url` | String | ✅ | 订阅地址（含 token） |
 | `subscriptions[].autoUpdate` | Bool | ✅ | 是否自动更新 |
@@ -231,7 +236,7 @@ config/
 
 ```
 1. GET meta.json                         → 判断远端是否为旧布局（见 5.5）
-2. 收集本地快照                           → 非订阅的 config/*.yaml + settings
+2. 收集本地快照                           → config/ 顶层全部 YAML / YML（含订阅）+ settings
 3. 打包：ditto -c -k --norsrc --noextattr --noqtn --zlibCompressionLevel 9
          <暂存目录>/{settings.json, config/*.yaml} → bundle.zip
 4. 计算 bundle 与 settings 的 sha256，连同配置清单组成新 meta
@@ -258,8 +263,9 @@ config/
 4. 用 meta.configs[] 做白名单校验 zip 中央目录条目（见 5.4），通过才解压
 5. ditto -x -k bundle.zip → 临时目录
 6. 校验 settings.json 与每个 config/*.yaml 的 sha256 == meta 中声明的值
-7. 逐个配置备份本地同名文件为 <name>.bak-sync-<timestamp>，再写入
-8. 按 settings.core.* 应用运行参数（端口/模式等）
+7. 旧包遗漏订阅 YAML 时，仅补下载本机也不存在的订阅，并验证内容；失败则停止恢复
+8. 逐个配置备份本地同名文件为 <name>.bak-sync-<timestamp>，再写入
+9. 恢复 subscriptions[] 与自动更新任务，刷新列表，再切换到 selectedConfig
 ```
 
 #### 5.2.1 旧布局（≤0.3.7-dev）拉取
@@ -268,7 +274,8 @@ config/
 1. GET settings.json                      → 读 selectedConfig 决定要下载哪个配置文件名
 2. GET config/<selectedConfig>.yaml       → 404 时回退 config/ClashBar.yaml
 3. 校验 sha256(config) == meta.legacyConfigSha256（即旧 meta 的 configSha256 字段）
-4. 备份 + 写入本地（只有这一个文件）
+4. 对本机缺失的其他订阅按 URL 补下载并验证
+5. 备份 + 写入本地，再应用订阅信息与选中项
 ```
 
 > 本地不会被远端清单之外的文件影响：**不删除**本地存在、远端没有的配置。可能是本机
@@ -370,13 +377,13 @@ config/
 | settings.json 字段 | 本地来源 |
 |---|---|
 | `core.*` | `AppViewModel.EditableSettingsSnapshot` |
-| `subscriptions[]` | `clashbar.config.remote.subscriptions.v2`（UserDefaults JSON），其 key 也用于从打包列表中排除对应的 `.yaml` |
+| `subscriptions[]` | `clashbar.config.remote.subscriptions.v2`（UserDefaults JSON），恢复 YAML 对应的订阅关系 |
 | `systemProxy.exceptions[]` | `clashbar.system_proxy.exceptions.v1` |
 | `ui.language` | `clashbar.ui.language` |
 | `ui.appearance` | `clashbar.ui.appearance.mode` |
 | `ssidRules[]` | `clashbar.ssid.strategy.rules.v1` |
 | `selectedConfig` | `clashbar.config.selected.filename` |
-| 打包的配置清单 | `ConfigDirectoryManager.scanConfigFiles` 扫描结果，过滤掉订阅文件名 |
+| 打包的配置清单 | `ConfigDirectoryManager.scanConfigFiles` 扫描的全部顶层 YAML / YML，包含订阅文件 |
 
 打包与解包不直接操作 Foundation API，而是 `Process` 调用系统自带的 `/usr/bin/ditto`
 （`-c -k --norsrc --noextattr --noqtn` 打包，`-x -k` 解包）：macOS 没有原生 zip 容器 API，
@@ -410,7 +417,7 @@ config/
 同步到云端的文件包含：
 
 - 订阅 URL 及 token
-- 本地自建配置里的节点密码 / UUID（订阅派生的配置内容本身不上传，但 URL 本身可能含 token）
+- 本地配置和远程订阅 YAML 中的节点密码 / UUID
 - 系统代理配置
 
 **必须遵守的约束：**
@@ -441,8 +448,11 @@ config/
 - **未发版（远端路径变更，在 bundle.zip 之前的一次中间改动，已被上条取代）**：配置文件名从固定
   `config/ClashBar.yaml` 改为 `config/<selectedConfig>`。
 - **未发版**：`sync` 的拉取分支只下载一次（此前上层会重复 `pull()` 一次，多算一次流量）。
-- **未发版**：订阅派生的配置文件（文件名出现在 `subscriptions[]` 中）不再参与同步内容，
-  只同步订阅的 URL/设置。
+- **早期实现（已修正）**：订阅派生的配置曾被排除，只同步 URL / 设置；这会导致新设备
+  缺少订阅 YAML，且刷新列表时订阅关系被清理。
+- **未发版（完整配置快照修复）**：所有顶层 YAML / YML（含远程订阅）都参与打包，恢复时
+  同时保留订阅 URL / 更新设置 / 选中项，并重启订阅更新任务。读取早期 URL-only 包时
+  先补下载本机缺失的订阅配置；现有字段和 ZIP 布局不变，无需提升 `schemaVersion`。
 
 **升级规则**：
 - 高版本写入、低版本读取时，忽略未知字段，保留原值回写（防止降级丢失数据）

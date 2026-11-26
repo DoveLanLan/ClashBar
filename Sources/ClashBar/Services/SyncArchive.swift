@@ -90,7 +90,7 @@ enum SyncArchive {
         let stage = root.appendingPathComponent("bundle", isDirectory: true)
         let configDirectoryURL = stage.appendingPathComponent(configDirectory, isDirectory: true)
         try FileManager.default.createDirectory(at: stage, withIntermediateDirectories: true)
-        // 配置数量为 0（只用订阅）时不建 config/，包内就只有 settings.json
+        // 配置数量为 0 时不建 config/，包内就只有 settings.json
         if !configs.isEmpty {
             try FileManager.default.createDirectory(
                 at: configDirectoryURL,

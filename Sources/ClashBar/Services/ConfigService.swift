@@ -212,7 +212,7 @@ struct ConfigImportService {
         return true
     }
 
-    private func validateClashConfigData(_ data: Data) -> Bool {
+    func validateClashConfigData(_ data: Data) -> Bool {
         guard let text = String(data: data, encoding: .utf8) else {
             return false
         }

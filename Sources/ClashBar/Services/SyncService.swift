@@ -11,8 +11,8 @@ struct LocalConfigFile: Equatable, Sendable {
 
 /// 参与同步的本地内容。
 ///
-/// 注意 `configs` 只包含「用户手写/自建」的配置：订阅派生的配置由各平台自行拉取，
-/// 纳入同步只会让设备之间互相覆盖过期节点。过滤在 `AppViewModel+Sync` 里完成。
+/// `configs` 包含所有顶层 YAML：本地配置以及远程订阅当前使用的配置。
+/// 订阅关系由 payload 保存；provider / 规则缓存等子目录不参与打包。
 struct LocalSyncSnapshot: Equatable, Sendable {
     /// 配置清单，需按文件名排序以保证哈希比较稳定
     var configs: [LocalConfigFile]
@@ -251,7 +251,7 @@ struct SyncService: Sendable {
             throw SyncError.invalidRemotePayload("settings.json 格式不合法")
         }
 
-        try self.writeLocalConfigs(contents.configs)
+        try await self.restoreLocalConfigs(contents.configs, payload: payload)
         return (payload, metadata)
     }
 
@@ -276,7 +276,9 @@ struct SyncService: Sendable {
             throw SyncError.invalidRemotePayload("配置内容与元信息哈希不匹配")
         }
 
-        try self.writeLocalConfigs([LocalConfigFile(name: config.fileName, data: config.data)])
+        try await self.restoreLocalConfigs(
+            [LocalConfigFile(name: config.fileName, data: config.data)],
+            payload: payload)
         return (payload, metadata)
     }
 
@@ -366,6 +368,62 @@ struct SyncService: Sendable {
     }
 
     // MARK: 本地写入
+
+    /// 新包已包含订阅 YAML；旧包只记录 URL 时，先补齐本机缺失的订阅文件。
+    /// 必须在调用方应用订阅、刷新列表之前完成，否则缺文件的订阅会被列表清理逻辑删除。
+    func restoreLocalConfigs(_ configs: [LocalConfigFile], payload: SyncPayload) async throws {
+        let completed = try await Self.completingSubscriptionConfigs(
+            configs,
+            subscriptions: payload.subscriptions,
+            existingDirectory: self.directories.configDirectoryURL)
+        { url in
+            try await ConfigImportService().downloadRemoteConfigData(from: url, userAgent: "clash.meta/v1.19.27")
+        }
+        try self.writeLocalConfigs(completed)
+    }
+
+    /// 注入下载函数，便于验证旧包恢复；完整的新包不会触发任何订阅请求。
+    static func completingSubscriptionConfigs(
+        _ configs: [LocalConfigFile],
+        subscriptions: [SubscriptionSection],
+        existingDirectory: URL,
+        download: @Sendable (URL) async throws -> Data) async throws -> [LocalConfigFile]
+    {
+        var subscriptionNames = Set<String>()
+        let sources = try subscriptions.map { item -> (name: String, url: URL) in
+            let name = try Self.normalizeConfigFileName(item.name)
+            let configImportService = ConfigImportService()
+            guard configImportService.normalizedConfigFileName(name) == name,
+                  subscriptionNames.insert(name).inserted,
+                  let url = URL(string: item.url.trimmed),
+                  configImportService.isSupportedRemoteConfigURL(url),
+                  url.host != nil
+            else {
+                throw SyncError.invalidRemotePayload("订阅名称或地址不合法：\(name)")
+            }
+            return (name, url)
+        }
+
+        let bundledNames = Set(configs.map(\.name))
+        var completed = configs
+        for source in sources.sorted(by: { $0.name < $1.name }) {
+            guard !bundledNames.contains(source.name) else { continue }
+
+            let target = existingDirectory.appendingPathComponent(source.name)
+            let values = try? target.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey])
+            if values?.isRegularFile == true, values?.isSymbolicLink != true {
+                continue
+            }
+
+            // 只补旧包遗漏且本机不存在的订阅，不刷新新包带来的当前快照。
+            let data = try await download(source.url)
+            guard ConfigImportService().validateClashConfigData(data) else {
+                throw SyncError.invalidRemotePayload("订阅未返回有效的 Clash 配置：\(source.name)")
+            }
+            completed.append(LocalConfigFile(name: source.name, data: data))
+        }
+        return completed.sorted { $0.name < $1.name }
+    }
 
     private func writeLocalConfigs(_ configs: [LocalConfigFile]) throws {
         for config in configs {
